@@ -8,13 +8,14 @@
     "build": "npm i --legacy-peer-deps && tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "ws": "node server/ws-server.js"
+    "ws": "node -r dotenv/config server/ws-server.js"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.9",
     "@heroicons/react": "^2.2.0",
     "@types/react-beautiful-dnd": "^13.1.8",
     "@types/uuid": "^10.0.0",
+    "dotenv": "^16.4.5",
     "react": "^19.1.1",
     "react-beautiful-dnd": "^13.1.1",
     "react-dom": "^19.1.1",

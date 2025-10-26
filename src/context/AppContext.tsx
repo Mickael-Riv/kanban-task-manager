@@ -147,7 +147,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         }
       }
       const envWs = (import.meta as any).env?.VITE_WS_URL as string | undefined;
-      const wsUrl = overrideWs || wsFromHash || localStorage.getItem('kanban_ws_url') || envWs;
+      const defaultBase = typeof window !== 'undefined' ? window.location.origin : undefined;
+      const wsUrl = overrideWs || wsFromHash || localStorage.getItem('kanban_ws_url') || envWs || defaultBase;
       if (!wsUrl) return;
       if (!realtimeRef.current) realtimeRef.current = new RealtimeService();
       realtimeRef.current.connect(wsUrl, projectId, {

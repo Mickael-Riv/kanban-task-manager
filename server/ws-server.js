@@ -5,10 +5,12 @@
      { type: 'join', projectId, clientId }
      { type: 'project:update', projectId, clientId, payload }
 */
+import 'dotenv/config';
 import { WebSocketServer } from 'ws';
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 8080;
-const wss = new WebSocketServer({ port: PORT });
+const HOST = process.env.WS_HOST || process.env.HOST || '0.0.0.0';
+const wss = new WebSocketServer({ port: PORT, host: HOST });
 
 /** @type {Map<string, Set<WebSocket>>} */
 const rooms = new Map();
@@ -62,5 +64,5 @@ wss.on('connection', (ws) => {
 });
 
 wss.on('listening', () => {
-  console.log(`WS relay listening on ws://localhost:${PORT}`);
+  console.log(`WS relay listening on ws://${HOST}:${PORT}`);
 });

@@ -28,44 +28,85 @@ export class RealtimeService {
   //@ts-ignore
   private wsUrl: string | null = null;
   private callbacks: RealtimeCallbacks | null = null;
+  private es: EventSource | null = null;
+  private transport: 'ws' | 'sse' | null = null;
 
   connect(wsUrl: string, projectId: string, callbacks: RealtimeCallbacks) {
     this.disconnect();
     this.wsUrl = wsUrl;
     this.projectId = projectId;
     this.callbacks = callbacks;
+    const isWS = /^wss?:\/\//i.test(wsUrl);
+    if (isWS) {
+      this.transport = 'ws';
+      try {
+        this.socket = new WebSocket(wsUrl);
+      } catch (e) {
+        callbacks.onStatus?.('error');
+        return;
+      }
 
-    try {
-      this.socket = new WebSocket(wsUrl);
-    } catch (e) {
-      callbacks.onStatus?.('error');
+      this.socket.addEventListener('open', () => {
+        callbacks.onStatus?.('connected');
+        this.send({ type: 'join', projectId, clientId: getClientId() });
+        try { localStorage.setItem('kanban_ws_url', wsUrl); } catch {}
+      });
+
+      this.socket.addEventListener('close', () => {
+        callbacks.onStatus?.('disconnected');
+      });
+
+      this.socket.addEventListener('message', (ev) => {
+        try {
+          const msg = JSON.parse(ev.data);
+          if (msg?.type === 'project:update' && msg.projectId === this.projectId) {
+            if (msg.clientId && msg.clientId === getClientId()) return;
+            if (typeof msg.payload === 'string') {
+              this.callbacks?.onProjectReceived(msg.payload);
+            }
+          }
+        } catch (e) {
+          // ignore invalid frames
+        }
+      });
       return;
     }
 
-    this.socket.addEventListener('open', () => {
-      callbacks.onStatus?.('connected');
-      this.send({ type: 'join', projectId, clientId: getClientId() });
-      // persist ws url for later sharing
-      try { localStorage.setItem('kanban_ws_url', wsUrl); } catch {}
-    });
-
-    this.socket.addEventListener('close', () => {
-      callbacks.onStatus?.('disconnected');
-    });
-
-    this.socket.addEventListener('message', (ev) => {
+    const isHTTP = /^https?:\/\//i.test(wsUrl);
+    if (isHTTP) {
+      this.transport = 'sse';
+      const base = wsUrl.replace(/\/$/, '');
+      const sseUrl = `${base}/realtime?projectId=${encodeURIComponent(projectId)}&clientId=${encodeURIComponent(getClientId())}`;
       try {
-        const msg = JSON.parse(ev.data);
-        if (msg?.type === 'project:update' && msg.projectId === this.projectId) {
-          if (msg.clientId && msg.clientId === getClientId()) return; // ignore own
-          if (typeof msg.payload === 'string') {
-            this.callbacks?.onProjectReceived(msg.payload);
-          }
-        }
+        this.es = new EventSource(sseUrl);
       } catch (e) {
-        // ignore invalid frames
+        callbacks.onStatus?.('error');
+        return;
       }
-    });
+      this.es.onopen = () => {
+        callbacks.onStatus?.('connected');
+        try { localStorage.setItem('kanban_ws_url', wsUrl); } catch {}
+      };
+      this.es.onerror = () => {
+        callbacks.onStatus?.('disconnected');
+      };
+      this.es.onmessage = (ev: MessageEvent) => {
+        try {
+          const msg = JSON.parse(ev.data);
+          if (msg?.type === 'project:update' && msg.projectId === this.projectId) {
+            if (msg.clientId && msg.clientId === getClientId()) return;
+            if (typeof msg.payload === 'string') {
+              this.callbacks?.onProjectReceived(msg.payload);
+            }
+          }
+        } catch (e) {
+          // ignore invalid frames
+        }
+      };
+      return;
+    }
+
+    callbacks.onStatus?.('error');
   }
 
   disconnect() {
@@ -73,16 +114,38 @@ export class RealtimeService {
       try { this.socket.close(); } catch {}
       this.socket = null;
     }
+    if (this.es) {
+      try { this.es.close(); } catch {}
+      this.es = null;
+    }
+    this.transport = null;
   }
 
   sendUpdatedProject(projectJson: string) {
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN || !this.projectId) return;
-    this.send({
-      type: 'project:update',
-      projectId: this.projectId,
-      clientId: getClientId(),
-      payload: projectJson,
-    });
+    if (!this.projectId) return;
+    if (this.transport === 'ws') {
+      if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+      this.send({
+        type: 'project:update',
+        projectId: this.projectId,
+        clientId: getClientId(),
+        payload: projectJson,
+      });
+      return;
+    }
+    if (this.transport === 'sse' && this.wsUrl) {
+      const base = this.wsUrl.replace(/\/$/, '');
+      fetch(`${base}/realtime`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          type: 'project:update',
+          projectId: this.projectId,
+          clientId: getClientId(),
+          payload: projectJson,
+        }),
+      }).catch(() => {});
+    }
   }
 
   private send(obj: any) {
