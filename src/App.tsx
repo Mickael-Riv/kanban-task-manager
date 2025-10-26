@@ -1,4 +1,3 @@
-import React from 'react';
 import { Header } from './components/Header';
 import { ProjectSidebar } from './components/ProjectSidebar';
 import { KanbanBoard } from './components/KanbanBoard';

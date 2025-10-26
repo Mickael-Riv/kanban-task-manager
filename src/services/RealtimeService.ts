@@ -25,6 +25,7 @@ const getClientId = (): string => {
 export class RealtimeService {
   private socket: WebSocket | null = null;
   private projectId: string | null = null;
+  //@ts-ignore
   private wsUrl: string | null = null;
   private callbacks: RealtimeCallbacks | null = null;
 
