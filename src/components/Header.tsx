@@ -2,7 +2,7 @@ import React from 'react';
 import { useAppContext } from '../context/AppContext';
 import { ProjectService } from '../services/ProjectService';
 
-export const Header: React.FC = () => {
+export const Header: React.FC<{ onMenuClick?: () => void }> = ({ onMenuClick }) => {
   const { state, exportProjects, importProjects } = useAppContext();
 
   const handleExport = () => {
@@ -46,10 +46,19 @@ export const Header: React.FC = () => {
   return (
     <header className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
       <div className="flex items-center gap-3">
+        <button
+          className="md:hidden inline-flex items-center justify-center p-2 rounded-md border border-gray-300 dark:border-gray-700"
+          aria-label="Open menu"
+          onClick={onMenuClick}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+            <path fillRule="evenodd" d="M3.75 5.25a.75.75 0 0 1 .75-.75h15a.75.75 0 0 1 0 1.5h-15a.75.75 0 0 1-.75-.75Zm0 6a.75.75 0 0 1 .75-.75h15a.75.75 0 0 1 0 1.5h-15a.75.75 0 0 1-.75-.75Zm.75 5.25a.75.75 0 0 0 0 1.5h15a.75.75 0 0 0 0-1.5h-15Z" clipRule="evenodd" />
+          </svg>
+        </button>
         <div className="h-9 w-9 rounded-lg bg-primary-600 text-white flex items-center justify-center font-bold">K</div>
         <h1 className="text-lg font-semibold">Kanban Task Manager</h1>
         {state.currentProject && (
-          <span className="ml-2 text-sm text-gray-500 dark:text-gray-400">/ {state.currentProject.name}</span>
+          <span className="ml-2 text-sm text-gray-500 dark:text-gray-400 hidden sm:inline">/ {state.currentProject.name}</span>
         )}
       </div>
       <div className="flex items-center gap-2">
@@ -64,4 +73,5 @@ export const Header: React.FC = () => {
       </div>
     </header>
   );
-};
+}
+;

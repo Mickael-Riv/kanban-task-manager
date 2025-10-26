@@ -74,28 +74,30 @@ export const KanbanBoard: React.FC = () => {
 
   return (
     <div className="flex-1 overflow-hidden">
-      <div className="border-b border-gray-200 dark:border-gray-700 p-3 flex gap-2 items-center">
+      <div className="border-b border-gray-200 dark:border-gray-700 p-3 flex flex-col sm:flex-row sm:items-center gap-2">
         <input
-          className="input max-w-sm"
+          className="input w-full sm:max-w-sm"
           placeholder="Search tasks..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <select className="input w-auto" value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value as any)}>
-          <option value="all">All priorities</option>
-          <option value="low">Low</option>
-          <option value="medium">Medium</option>
-          <option value="high">High</option>
-        </select>
-        <input
-          className="input max-w-xs"
-          placeholder="Filter by label..."
-          value={labelFilter}
-          onChange={(e) => setLabelFilter(e.target.value)}
-        />
+        <div className="flex gap-2 w-full sm:w-auto">
+          <select className="input w-full sm:w-auto" value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value as any)}>
+            <option value="all">All priorities</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+          </select>
+          <input
+            className="input w-full sm:max-w-xs"
+            placeholder="Filter by label..."
+            value={labelFilter}
+            onChange={(e) => setLabelFilter(e.target.value)}
+          />
+        </div>
       </div>
-      <div className="h-full overflow-auto p-4">
-        <div className="flex gap-4 min-w-full">
+      <div className="h-full overflow-auto p-4 pb-6">
+        <div className="flex gap-4 min-w-full pr-4">
           {(Object.keys(STATUS_TITLES) as TaskStatus[]).map((status) => (
             <div
               key={status}
