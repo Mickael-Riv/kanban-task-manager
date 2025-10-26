@@ -1,4 +1,4 @@
-export type TaskStatus = 'todo' | 'in-progress' | 'done';
+export type TaskStatus = string;
 export type Priority = 'low' | 'medium' | 'high';
 
 export interface Task {
@@ -25,6 +25,7 @@ export interface Project {
 
 export interface ProjectWithTasks extends Project {
   tasks: Task[];
+  columns?: ColumnConfig[];
 }
 
 export type DropResult = {
@@ -44,4 +45,10 @@ export type Column = {
   id: TaskStatus;
   title: string;
   tasks: Task[];
+};
+
+export type ColumnConfig = {
+  id: string;
+  title: string;
+  order?: number;
 };

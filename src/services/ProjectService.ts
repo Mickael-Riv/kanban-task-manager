@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import type { Project, Task, ProjectWithTasks, TaskStatus, Priority } from '../types';
+import type { Project, Task, ProjectWithTasks, TaskStatus, Priority, ColumnConfig } from '../types';
 
 const PROJECTS_KEY = 'kanban_projects';
 
@@ -17,6 +17,59 @@ export const ProjectService = {
   getAllProjects: (): Project[] => {
     const projects = getProjectsFromStorage();
     return projects.map(({ tasks, ...project }) => project);
+  },
+
+  moveColumn: (projectId: string, columnId: string, newIndex: number): ProjectWithTasks | undefined => {
+    const projects = getProjectsFromStorage();
+    const idx = projects.findIndex(p => p.id === projectId);
+    if (idx === -1) return undefined;
+    const p = projects[idx];
+    const cols = (p.columns && p.columns.length) ? p.columns.slice() : [
+      { id: 'todo', title: 'To do', order: 0 },
+      { id: 'in-progress', title: 'In progress', order: 1 },
+      { id: 'done', title: 'Done', order: 2 },
+    ];
+    const curIndex = cols.findIndex(c => c.id === columnId);
+    if (curIndex === -1) return undefined;
+    const clamped = Math.max(0, Math.min(newIndex, cols.length - 1));
+    if (clamped === curIndex) return p;
+    const [moved] = cols.splice(curIndex, 1);
+    cols.splice(clamped, 0, moved);
+    // reassign sequential order
+    cols.forEach((c, i) => { c.order = i; });
+    p.columns = cols;
+    p.updatedAt = new Date().toISOString();
+    projects[idx] = p;
+    saveProjectsToStorage(projects);
+    return p;
+  },
+
+  deleteColumn: (projectId: string, columnId: string): ProjectWithTasks | undefined => {
+    const projects = getProjectsFromStorage();
+    const idx = projects.findIndex(p => p.id === projectId);
+    if (idx === -1) return undefined;
+    const p = projects[idx];
+    const cols = (p.columns && p.columns.length) ? p.columns.slice() : [
+      { id: 'todo', title: 'To do', order: 0 },
+      { id: 'in-progress', title: 'In progress', order: 1 },
+      { id: 'done', title: 'Done', order: 2 },
+    ];
+    if (cols.length <= 1) return p; // do not remove the last column
+    const delIndex = cols.findIndex(c => c.id === columnId);
+    if (delIndex === -1) return undefined;
+    // Determine migration target: next column if exists; otherwise previous
+    const targetIndex = delIndex < cols.length - 1 ? delIndex + 1 : delIndex - 1;
+    const targetId = cols[targetIndex].id;
+    // Migrate tasks
+    p.tasks = p.tasks.map(t => (t.status === columnId ? { ...t, status: targetId, updatedAt: new Date().toISOString() } : t));
+    // Remove column and reassign order
+    cols.splice(delIndex, 1);
+    cols.forEach((c, i) => { c.order = i; });
+    p.columns = cols;
+    p.updatedAt = new Date().toISOString();
+    projects[idx] = p;
+    saveProjectsToStorage(projects);
+    return p;
   },
 
   moveTask: (
@@ -75,12 +128,19 @@ export const ProjectService = {
   createProject: (name: string, description?: string): Project => {
     const projects = getProjectsFromStorage();
     const now = new Date().toISOString();
-    
+
+    const defaultColumns: ColumnConfig[] = [
+      { id: 'todo', title: 'To do', order: 0 },
+      { id: 'in-progress', title: 'In progress', order: 1 },
+      { id: 'done', title: 'Done', order: 2 },
+    ];
+
     const newProject: ProjectWithTasks = {
       id: uuidv4(),
       name,
       description,
       tasks: [],
+      columns: defaultColumns,
       createdAt: now,
       updatedAt: now,
     };
@@ -279,14 +339,71 @@ export const ProjectService = {
       }
     }
     const mergedTasks = Array.from(byId.values());
+    // merge columns by id, keep existing order if present
+    const existingCols = existing.columns ?? [];
+    const incomingCols = incoming.columns ?? [];
+    const colMap = new Map<string, ColumnConfig>();
+    for (const c of existingCols) colMap.set(c.id, c);
+    for (const c of incomingCols) if (!colMap.has(c.id)) colMap.set(c.id, c);
+    const mergedColumns = Array.from(colMap.values()).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     const merged: ProjectWithTasks = {
       ...existing,
       ...incoming,
       tasks: mergedTasks,
+      columns: mergedColumns.length ? mergedColumns : undefined,
       updatedAt: new Date(Math.max(new Date(existing.updatedAt).getTime(), new Date(incoming.updatedAt).getTime())).toISOString(),
     };
     projects[idx] = merged;
     saveProjectsToStorage(projects);
     return merged;
+  },
+
+  addColumn: (projectId: string, title: string): ProjectWithTasks | undefined => {
+    const projects = getProjectsFromStorage();
+    const idx = projects.findIndex(p => p.id === projectId);
+    if (idx === -1) return undefined;
+    const p = projects[idx];
+    const ensureDefaults = (): ColumnConfig[] => {
+      const defaults: ColumnConfig[] = [
+        { id: 'todo', title: 'To do', order: 0 },
+        { id: 'in-progress', title: 'In progress', order: 1 },
+        { id: 'done', title: 'Done', order: 2 },
+      ];
+      return defaults;
+    };
+    const base = (title || 'Column').toString().toLowerCase().trim();
+    const slugBase = base.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'column';
+    let slug = slugBase;
+    const cols = (p.columns && p.columns.length ? p.columns.slice() : ensureDefaults());
+    let counter = 1;
+    while (cols.some(c => c.id === slug)) {
+      slug = `${slugBase}-${counter++}`;
+    }
+    if (!cols.some(c => c.id === slug)) {
+      const nextOrder = cols.length ? Math.max(...cols.map(c => c.order ?? 0)) + 1 : 0;
+      cols.push({ id: slug, title: title || 'Column', order: nextOrder });
+      p.columns = cols;
+      p.updatedAt = new Date().toISOString();
+      projects[idx] = p;
+      saveProjectsToStorage(projects);
+    }
+    return p;
+  },
+
+  updateColumnTitle: (projectId: string, columnId: string, newTitle: string): ProjectWithTasks | undefined => {
+    const projects = getProjectsFromStorage();
+    const idx = projects.findIndex(p => p.id === projectId);
+    if (idx === -1) return undefined;
+    const p = projects[idx];
+    if (!p.columns || !p.columns.length) return undefined;
+    const cols = p.columns.slice();
+    const cidx = cols.findIndex(c => c.id === columnId);
+    if (cidx === -1) return undefined;
+    cols[cidx] = { ...cols[cidx], title: newTitle || cols[cidx].title };
+    p.columns = cols;
+    p.updatedAt = new Date().toISOString();
+    projects[idx] = p;
+    saveProjectsToStorage(projects);
+    return p;
   },
 };

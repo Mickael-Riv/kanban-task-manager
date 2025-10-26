@@ -7,9 +7,10 @@ type Props = {
   onUpdate: (updates: Partial<Task>) => void;
   onDelete: () => void;
   onChangeStatus: (status: TaskStatus) => void;
+  statuses?: Array<{ id: TaskStatus; title: string }>;
 };
 
-export const TaskCard: React.FC<Props> = ({ task, onUpdate, onDelete, onChangeStatus }) => {
+export const TaskCard: React.FC<Props> = ({ task, onUpdate, onDelete, onChangeStatus, statuses }) => {
   const [isEditing, setIsEditing] = useState(false);
 
   const dueBadge = useMemo(() => {
@@ -72,14 +73,32 @@ export const TaskCard: React.FC<Props> = ({ task, onUpdate, onDelete, onChangeSt
           onChange={(e) => onChangeStatus(e.target.value as TaskStatus)}
           title="Change status"
         >
-          <option value="todo">To do</option>
-          <option value="in-progress">In progress</option>
-          <option value="done">Done</option>
+          {(statuses && statuses.length > 0) ? (
+            statuses.map(s => (
+              <option key={s.id} value={s.id}>{s.title}</option>
+            ))
+          ) : (
+            <>
+              <option value="todo">To do</option>
+              <option value="in-progress">In progress</option>
+              <option value="done">Done</option>
+            </>
+          )}
         </select>
       </div>
       <div className="flex gap-2 mt-3">
-        <button className="btn btn-secondary flex-1" onClick={() => setIsEditing(true)}>Edit</button>
-        <button className="btn flex-1 bg-red-600 text-white hover:bg-red-700" onClick={onDelete}>Delete</button>
+        <button
+          className="btn btn-secondary flex-1"
+          title="Edit task"
+          aria-label="Edit task"
+          onClick={() => setIsEditing(true)}
+        >Edit task</button>
+        <button
+          className="btn flex-1 bg-red-600 text-white hover:bg-red-700"
+          title="Delete task"
+          aria-label="Delete task"
+          onClick={onDelete}
+        >Delete task</button>
       </div>
     </div>
   );

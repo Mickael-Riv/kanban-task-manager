@@ -5,9 +5,10 @@ type Props = {
   onSubmit: (values: { title: string; description: string; status: TaskStatus; externalLink?: string; priority?: Priority; dueDate?: string; labels?: string[] }) => void;
   onCancel: () => void;
   initial?: { title?: string; description?: string; status?: TaskStatus; externalLink?: string; priority?: Priority; dueDate?: string; labels?: string[] };
+  statuses?: Array<{ id: TaskStatus; title: string }>;
 };
 
-export const TaskForm: React.FC<Props> = ({ onSubmit, onCancel, initial }) => {
+export const TaskForm: React.FC<Props> = ({ onSubmit, onCancel, initial, statuses }) => {
   const [title, setTitle] = useState(initial?.title ?? '');
   const [description, setDescription] = useState(initial?.description ?? '');
   const [status, setStatus] = useState<TaskStatus>(initial?.status ?? 'todo');
@@ -40,9 +41,17 @@ export const TaskForm: React.FC<Props> = ({ onSubmit, onCancel, initial }) => {
       <textarea className="input" placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} />
       <div className="flex gap-2">
         <select className="input" value={status} onChange={(e) => setStatus(e.target.value as TaskStatus)}>
-          <option value="todo">To do</option>
-          <option value="in-progress">In progress</option>
-          <option value="done">Done</option>
+          {(statuses && statuses.length > 0) ? (
+            statuses.map(s => (
+              <option key={s.id} value={s.id}>{s.title}</option>
+            ))
+          ) : (
+            <>
+              <option value="todo">To do</option>
+              <option value="in-progress">In progress</option>
+              <option value="done">Done</option>
+            </>
+          )}
         </select>
         <input className="input" placeholder="External link (optional)" value={externalLink} onChange={(e) => setExternalLink(e.target.value)} />
       </div>
@@ -56,8 +65,19 @@ export const TaskForm: React.FC<Props> = ({ onSubmit, onCancel, initial }) => {
       </div>
       <input className="input" placeholder="Labels (comma-separated)" value={labels} onChange={(e) => setLabels(e.target.value)} />
       <div className="flex gap-2">
-        <button type="submit" className="btn btn-primary flex-1">Save</button>
-        <button type="button" className="btn btn-secondary flex-1" onClick={onCancel}>Cancel</button>
+        <button
+          type="submit"
+          className="btn btn-primary flex-1"
+          title="Save task"
+          aria-label="Save task"
+        >Save task</button>
+        <button
+          type="button"
+          className="btn btn-secondary flex-1"
+          title="Cancel"
+          aria-label="Cancel"
+          onClick={onCancel}
+        >Cancel</button>
       </div>
     </form>
   );

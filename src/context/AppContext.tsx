@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, type ReactNode, useEffect, useRef } from 'react';
-import type { Project, Task, ProjectWithTasks, Priority } from '../types';
+import type { Project, Task, ProjectWithTasks, Priority, TaskStatus } from '../types';
 import { ProjectService } from '../services/ProjectService';
 import { RealtimeService } from '../services/RealtimeService';
 
@@ -9,6 +9,7 @@ type AppState = {
   isLoading: boolean;
   error: string | null;
   realtimeStatus?: 'connected' | 'disconnected' | 'error';
+  sessionsCount?: number;
 };
 
 type AppAction =
@@ -22,7 +23,8 @@ type AppAction =
   | { type: 'DELETE_TASK'; payload: { projectId: string; taskId: string } }
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'SET_ERROR'; payload: string | null }
-  | { type: 'SET_REALTIME_STATUS'; payload: 'connected' | 'disconnected' | 'error' };
+  | { type: 'SET_REALTIME_STATUS'; payload: 'connected' | 'disconnected' | 'error' }
+  | { type: 'SET_SESSIONS_COUNT'; payload: number };
 
 type AppContextType = {
   state: AppState;
@@ -35,13 +37,17 @@ type AppContextType = {
     projectId: string,
     title: string,
     description: string,
-    status?: 'todo' | 'in-progress' | 'done',
+    status?: TaskStatus,
     externalLink?: string,
     options?: { priority?: Priority; dueDate?: string; labels?: string[] }
   ) => Promise<Task | undefined>;
   updateTask: (projectId: string, taskId: string, updates: Partial<Task>) => Promise<Task | undefined>;
   deleteTask: (projectId: string, taskId: string) => Promise<boolean>;
-  moveTask: (projectId: string, taskId: string, destinationStatus: 'todo' | 'in-progress' | 'done', destinationIndex: number) => Promise<void>;
+  moveTask: (projectId: string, taskId: string, destinationStatus: TaskStatus, destinationIndex: number) => Promise<void>;
+  addColumn: (projectId: string, title: string) => Promise<ProjectWithTasks | undefined>;
+  updateColumnTitle: (projectId: string, columnId: string, newTitle: string) => Promise<ProjectWithTasks | undefined>;
+  moveColumn: (projectId: string, columnId: string, newIndex: number) => Promise<ProjectWithTasks | undefined>;
+  deleteColumn: (projectId: string, columnId: string) => Promise<ProjectWithTasks | undefined>;
   importProjects: (data: string) => boolean;
   exportProjects: () => string;
   clearError: () => void;
@@ -55,6 +61,7 @@ const initialState: AppState = {
   isLoading: false,
   error: null,
   realtimeStatus: 'disconnected',
+  sessionsCount: 1,
 };
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -126,6 +133,8 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
       return { ...state, error: action.payload };
     case 'SET_REALTIME_STATUS':
       return { ...state, realtimeStatus: action.payload };
+    case 'SET_SESSIONS_COUNT':
+      return { ...state, sessionsCount: action.payload };
     default:
       return state;
   }
@@ -134,6 +143,7 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const realtimeRef = useRef<RealtimeService | null>(null);
+  const presenceRef = useRef<{ bc: BroadcastChannel | null; tabId: string; timer: number | null; seen: Map<string, number> } | null>(null);
 
   const connectRealtimeIfPossible = (projectId: string, overrideWs?: string | null) => {
     try {
@@ -206,6 +216,46 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setError('Project not found');
       } else {
         connectRealtimeIfPossible(project.id);
+        try {
+          // setup presence channel per project
+          if (presenceRef.current?.bc) {
+            presenceRef.current.bc.close();
+            if (presenceRef.current.timer) window.clearInterval(presenceRef.current.timer);
+          }
+          const tabId = crypto.randomUUID();
+          const bc = new BroadcastChannel(`kanban_presence_${project.id}`);
+          const seen = new Map<string, number>();
+          const now = Date.now();
+          seen.set(tabId, now);
+          const updateCount = () => {
+            const cutoff = Date.now() - 10000;
+            let count = 0;
+            for (const [, v] of seen) {
+              if (v >= cutoff) count++;
+            }
+            dispatch({ type: 'SET_SESSIONS_COUNT', payload: Math.max(1, count) });
+          };
+          bc.onmessage = (ev) => {
+            const msg = ev.data as any;
+            if (msg && msg.type === 'ping' && typeof msg.tabId === 'string' && typeof msg.ts === 'number') {
+              seen.set(msg.tabId, msg.ts);
+              updateCount();
+            } else if (msg && msg.type === 'bye' && typeof msg.tabId === 'string') {
+              seen.delete(msg.tabId);
+              updateCount();
+            }
+          };
+          const timer = window.setInterval(() => {
+            try { bc.postMessage({ type: 'ping', tabId, ts: Date.now() }); } catch {}
+            seen.set(tabId, Date.now());
+            updateCount();
+          }, 4000);
+          try { window.addEventListener('beforeunload', () => { try { bc.postMessage({ type: 'bye', tabId }); } catch {} }); } catch {}
+          presenceRef.current = { bc, tabId, timer, seen };
+          // initial announce
+          try { bc.postMessage({ type: 'ping', tabId, ts: Date.now() }); } catch {}
+          updateCount();
+        } catch {}
       }
     } catch (error) {
       setError('Failed to load project');
@@ -270,7 +320,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     projectId: string,
     title: string,
     description: string,
-    status: 'todo' | 'in-progress' | 'done' = 'todo',
+    status: TaskStatus = 'todo',
     externalLink?: string,
     options?: { priority?: Priority; dueDate?: string; labels?: string[] }
   ) => {
@@ -332,10 +382,66 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-    const moveTask = async (
+    const addColumn = async (projectId: string, title: string) => {
+    try {
+      const updated = ProjectService.addColumn(projectId, title);
+      if (updated) {
+        dispatch({ type: 'SET_CURRENT_PROJECT', payload: updated });
+        broadcastCurrentProject();
+      }
+      return updated;
+    } catch (e) {
+      console.error('Error adding column:', e);
+      return undefined;
+    }
+  };
+
+  const updateColumnTitle = async (projectId: string, columnId: string, newTitle: string) => {
+    try {
+      const updated = ProjectService.updateColumnTitle(projectId, columnId, newTitle);
+      if (updated) {
+        dispatch({ type: 'SET_CURRENT_PROJECT', payload: updated });
+        broadcastCurrentProject();
+      }
+      return updated;
+    } catch (e) {
+      console.error('Error updating column title:', e);
+      return undefined;
+    }
+  };
+
+    const moveColumn = async (projectId: string, columnId: string, newIndex: number) => {
+    try {
+      const updated = ProjectService.moveColumn(projectId, columnId, newIndex);
+      if (updated) {
+        dispatch({ type: 'SET_CURRENT_PROJECT', payload: updated });
+        broadcastCurrentProject();
+      }
+      return updated;
+    } catch (e) {
+      console.error('Error moving column:', e);
+      return undefined;
+    }
+  };
+
+  const deleteColumn = async (projectId: string, columnId: string) => {
+    try {
+      const updated = ProjectService.deleteColumn(projectId, columnId);
+      if (updated) {
+        dispatch({ type: 'SET_CURRENT_PROJECT', payload: updated });
+        broadcastCurrentProject();
+      }
+      return updated;
+    } catch (e) {
+      console.error('Error deleting column:', e);
+      return undefined;
+    }
+  };
+
+  const moveTask = async (
     projectId: string,
     taskId: string,
-    destinationStatus: 'todo' | 'in-progress' | 'done',
+    destinationStatus: TaskStatus,
     destinationIndex: number
   ) => {
     try {
@@ -431,6 +537,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         updateTask,
         deleteTask,
         moveTask,
+        addColumn,
+        updateColumnTitle,
+        moveColumn,
+        deleteColumn,
         importProjects,
         exportProjects,
         clearError,
