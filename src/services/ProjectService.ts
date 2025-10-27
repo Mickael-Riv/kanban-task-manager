@@ -327,30 +327,13 @@ export const ProjectService = {
       return incoming;
     }
     const existing = projects[idx];
-    const byId = new Map(existing.tasks.map(t => [t.id, t] as const));
-    for (const t of incoming.tasks) {
-      const cur = byId.get(t.id);
-      if (!cur) {
-        byId.set(t.id, t);
-      } else {
-        // choose newer by updatedAt
-        const newer = (new Date(t.updatedAt).getTime() >= new Date(cur.updatedAt).getTime()) ? t : cur;
-        byId.set(t.id, newer);
-      }
-    }
-    const mergedTasks = Array.from(byId.values());
-    // merge columns by id, keep existing order if present
-    const existingCols = existing.columns ?? [];
-    const incomingCols = incoming.columns ?? [];
-    const colMap = new Map<string, ColumnConfig>();
-    for (const c of existingCols) colMap.set(c.id, c);
-    for (const c of incomingCols) if (!colMap.has(c.id)) colMap.set(c.id, c);
-    const mergedColumns = Array.from(colMap.values()).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    // Authoritative snapshot: tasks and columns are taken as-is from incoming to allow deletions to propagate.
     const merged: ProjectWithTasks = {
       ...existing,
       ...incoming,
-      tasks: mergedTasks,
-      columns: mergedColumns.length ? mergedColumns : undefined,
+      tasks: (incoming.tasks ?? []).slice(),
+      columns: incoming.columns ? incoming.columns.slice() : undefined,
+      // Keep the latest updatedAt between existing and incoming for consistency
       updatedAt: new Date(Math.max(new Date(existing.updatedAt).getTime(), new Date(incoming.updatedAt).getTime())).toISOString(),
     };
     projects[idx] = merged;

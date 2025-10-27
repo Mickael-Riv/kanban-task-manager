@@ -9,6 +9,7 @@
 export type RealtimeCallbacks = {
   onProjectReceived: (projectJson: string) => void;
   onStatus?: (status: 'connected' | 'disconnected' | 'error') => void;
+  onPresencePing?: (clientId: string, ts: number) => void;
 };
 
 const CLIENT_ID_KEY = 'kanban_client_id';
@@ -64,6 +65,10 @@ export class RealtimeService {
             if (typeof msg.payload === 'string') {
               this.callbacks?.onProjectReceived(msg.payload);
             }
+          } else if ((msg?.type === 'presence:ping' || msg?.type === 'presence:bye') && msg.projectId === this.projectId) {
+            const fromId = typeof msg.clientId === 'string' ? msg.clientId : '';
+            const ts = typeof msg.ts === 'number' ? msg.ts : Date.now();
+            if (fromId) this.callbacks?.onPresencePing?.(fromId, ts);
           }
         } catch (e) {
           // ignore invalid frames
@@ -98,6 +103,10 @@ export class RealtimeService {
             if (typeof msg.payload === 'string') {
               this.callbacks?.onProjectReceived(msg.payload);
             }
+          } else if ((msg?.type === 'presence:ping' || msg?.type === 'presence:bye') && msg.projectId === this.projectId) {
+            const fromId = typeof msg.clientId === 'string' ? msg.clientId : '';
+            const ts = typeof msg.ts === 'number' ? msg.ts : Date.now();
+            if (fromId) this.callbacks?.onPresencePing?.(fromId, ts);
           }
         } catch (e) {
           // ignore invalid frames
@@ -144,6 +153,52 @@ export class RealtimeService {
           clientId: getClientId(),
           payload: projectJson,
         }),
+      }).catch(() => {});
+    }
+  }
+
+  sendPresencePing() {
+    if (!this.projectId) return;
+    const frame = {
+      type: 'presence:ping',
+      projectId: this.projectId,
+      clientId: getClientId(),
+      ts: Date.now(),
+    } as const;
+    if (this.transport === 'ws') {
+      if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+      this.send(frame);
+      return;
+    }
+    if (this.transport === 'sse' && this.wsUrl) {
+      const base = this.wsUrl.replace(/\/$/, '');
+      fetch(`${base}/realtime`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(frame),
+      }).catch(() => {});
+    }
+  }
+
+  sendPresenceBye() {
+    if (!this.projectId) return;
+    const frame = {
+      type: 'presence:bye',
+      projectId: this.projectId,
+      clientId: getClientId(),
+      ts: Date.now(),
+    } as const;
+    if (this.transport === 'ws') {
+      if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+      this.send(frame);
+      return;
+    }
+    if (this.transport === 'sse' && this.wsUrl) {
+      const base = this.wsUrl.replace(/\/$/, '');
+      fetch(`${base}/realtime`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(frame),
       }).catch(() => {});
     }
   }

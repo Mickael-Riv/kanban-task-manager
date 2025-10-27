@@ -143,7 +143,7 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const realtimeRef = useRef<RealtimeService | null>(null);
-  const presenceRef = useRef<{ bc: BroadcastChannel | null; tabId: string; timer: number | null; seen: Map<string, number> } | null>(null);
+  const presenceRef = useRef<{ bc: BroadcastChannel | null; tabId: string; timer: number | null; rtTimer: number | null; seen: Map<string, number> } | null>(null);
 
   const connectRealtimeIfPossible = (projectId: string, overrideWs?: string | null) => {
     try {
@@ -167,6 +167,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           if (imported && imported.id === projectId) {
             dispatch({ type: 'SET_CURRENT_PROJECT', payload: imported });
           }
+        },
+        onPresencePing: (clientId, ts) => {
+          try {
+            if (!presenceRef.current) return;
+            presenceRef.current.seen.set(clientId, ts);
+            const cutoff = Date.now() - 10000;
+            let count = 0;
+            for (const [, v] of presenceRef.current.seen) {
+              if (v >= cutoff) count++;
+            }
+            dispatch({ type: 'SET_SESSIONS_COUNT', payload: Math.max(1, count) });
+          } catch {}
         },
         onStatus: (s) => {
           dispatch({ type: 'SET_REALTIME_STATUS', payload: s });
@@ -220,8 +232,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           // setup presence channel per project
           if (presenceRef.current?.bc) {
             presenceRef.current.bc.close();
-            if (presenceRef.current.timer) window.clearInterval(presenceRef.current.timer);
           }
+          if (presenceRef.current?.timer) window.clearInterval(presenceRef.current.timer);
+          if (presenceRef.current?.rtTimer) window.clearInterval(presenceRef.current.rtTimer);
           const tabId = crypto.randomUUID();
           const bc = new BroadcastChannel(`kanban_presence_${project.id}`);
           const seen = new Map<string, number>();
@@ -250,8 +263,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             seen.set(tabId, Date.now());
             updateCount();
           }, 4000);
-          try { window.addEventListener('beforeunload', () => { try { bc.postMessage({ type: 'bye', tabId }); } catch {} }); } catch {}
-          presenceRef.current = { bc, tabId, timer, seen };
+          // Cross-device presence via realtime
+          const rtTimer = window.setInterval(() => {
+            try { realtimeRef.current?.sendPresencePing(); } catch {}
+          }, 4000);
+          try {
+            window.addEventListener('beforeunload', () => {
+              try { bc.postMessage({ type: 'bye', tabId }); } catch {}
+              try { realtimeRef.current?.sendPresenceBye(); } catch {}
+            });
+          } catch {}
+          presenceRef.current = { bc, tabId, timer, rtTimer, seen };
           // initial announce
           try { bc.postMessage({ type: 'ping', tabId, ts: Date.now() }); } catch {}
           updateCount();

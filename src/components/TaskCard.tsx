@@ -94,11 +94,11 @@ export const TaskCard: React.FC<Props> = ({ task, onUpdate, onDelete, onChangeSt
           onClick={() => setIsEditing(true)}
         >Edit task</button>
         <button
-          className="btn flex-1 bg-red-600 text-white hover:bg-red-700"
+          className="btn btn-secondary btn-sm text-red-600 border border-red-200 hover:bg-red-50 dark:hover:bg-red-900/20 flex-1"
           title="Delete task"
           aria-label="Delete task"
           onClick={onDelete}
-        >Delete task</button>
+        >Delete</button>
       </div>
     </div>
   );
